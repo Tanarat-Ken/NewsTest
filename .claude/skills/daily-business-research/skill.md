@@ -25,16 +25,14 @@ Before any research, verify connectors are available.
 
 ```
 REQUIRED_CONNECTOR: mcp__github__
-OPTIONAL_ENV: LINE_CHANNEL_ACCESS_TOKEN, LINE_TO
 TIMEZONE: Asia/Bangkok (UTC+7)
 TODAY: resolve from system date in Asia/Bangkok timezone
+LINE_ENABLED: true (notifications sent via n8n webhook)
 ```
 
 1. Attempt a lightweight GitHub API call (e.g., `mcp__github__get_me`) to confirm the GitHub connector is live.
    - **If it fails**: log `[ABORT] GitHub connector unavailable — cannot commit article. Halting skill.` and stop all further steps.
-2. Check whether `LINE_CHANNEL_ACCESS_TOKEN` and `LINE_TO` are set in the environment.
-   - If absent: set `LINE_ENABLED = false` and log `[SKIP] LINE env vars not set — will skip notification step.`
-   - If present: set `LINE_ENABLED = true`.
+2. Set `LINE_ENABLED = true`. LINE notifications are sent via n8n webhook — no env vars required.
 
 ---
 
@@ -164,9 +162,9 @@ Merge the Phase 3 draft and Phase 4 analysis into a single coherent article. Rul
 
 1. Perspectives are **woven into the narrative**, not appended as separate sections.
 2. Add a final `## Action Items` section:
-   - 5–7 concrete, time-bound actions for procurement teams.
+   - 3–5 concrete, time-bound actions for procurement teams.
    - Format: `[ ] Action — Owner suggestion — Deadline/trigger`
-3. Word target: **800–1,200 words** in Thai.
+3. Word target: **400–600 words** in Thai.
 4. Maintain all citations from Phase 3.
 5. Append a `## Sources` section listing every URL cited, in order of appearance.
 
@@ -184,7 +182,7 @@ Use `mcp__github__create_or_update_file` with:
   "repo": "<GITHUB_REPO>",
   "path": "articles/YYYY-MM-DD-<slug>.md",
   "message": "brief: {TOPIC} YYYY-MM-DD",
-  "content": "<base64-encoded article>",
+  "content": "<article content>",
   "branch": "main"
 }
 ```
@@ -201,46 +199,32 @@ If `mcp__github__create_or_update_file` returns an error:
 
 ## Phase 7 — LINE Notification
 
-**Skip entirely if `LINE_ENABLED = false`.**
+**Always execute** (LINE_ENABLED = true).
 
-Compose the message text:
+Compose a short message (max 300 characters total):
 
 ```
-📊 Daily Procurement Brief — YYYY-MM-DD
-
-{HEADLINE}
-
-สรุป:
+📊 {HEADLINE} — {DATE}
 • {bullet 1 — max 20 words}
 • {bullet 2 — max 20 words}
 • {bullet 3 — max 20 words}
-
-อ่านฉบับเต็ม: {permalink from Phase 6}
+อ่านเพิ่ม: {permalink}
 ```
 
-Send via `WebFetch` (POST):
+URL-encode the message, then send via `WebFetch` (GET):
 
 ```
-URL:     https://api.line.me/v2/bot/message/push
-Method:  POST
-Headers:
-  Content-Type: application/json
-  Authorization: Bearer {LINE_CHANNEL_ACCESS_TOKEN}
-Body:
-  {
-    "to": "{LINE_TO}",
-    "messages": [{"type": "text", "text": "<message above>"}]
-  }
+URL: https://n8n.srv1307565.hstgr.cloud/webhook/line-notify?msg={URL-encoded message}
 ```
 
-- If the HTTP response status is **200**: log `[OK] LINE notification sent.`
-- If non-200: log `[ERROR] LINE API returned {status}: {body}`. **Do not retry.** Continue to Phase 8.
+- If WebFetch returns a response containing `"status":"ok"`: log `[OK] LINE notification sent.`
+- If the response does not contain `"status":"ok"` or fetch fails: log `[ERROR] LINE webhook failed`. **Do not retry.** Continue to Phase 8.
 
 ---
 
 ## Phase 8 — Run Log Summary
 
-Append a summary block to the article's front-matter comment and print to output:
+Print to output:
 
 ```
 === Daily Business Research Run Log ===
@@ -250,7 +234,7 @@ After dedup : M
 Article     : articles/YYYY-MM-DD-<slug>.md
 Commit SHA  : <sha>
 Permalink   : <permalink>
-LINE sent   : yes | no | skipped
+LINE sent   : yes | no
 Errors      : none | <list>
 ========================================
 ```
@@ -263,8 +247,7 @@ Errors      : none | <list>
 |---|---|
 | No Bash/shell/git CLI | Never invoke subprocess, terminal, or CLI commands |
 | GitHub connector absent | Abort immediately, log error |
-| LINE env absent | Skip LINE step, proceed with commit |
-| LINE API non-200 | Log error, no silent retry, continue |
+| LINE webhook fail | Log error, no silent retry, continue to Phase 8 |
 | Duplicate story | Skip unless impact_score uplift ≥ 2 |
 | No stories today | Commit quiet-day placeholder, skip LINE |
 | Fabricated data | Prohibited — cite or omit |
