@@ -56,11 +56,14 @@ If PO contains "|":  (multiple POs from OCR)
   Proceed with selected PO.
 
 Single PO — year fallback (attempt in order, stop on first hit):
-  Attempt 1: query PO exactly as given
-  Attempt 2: replace 2-digit year in PO → YY−1
-  Attempt 3: replace 2-digit year → Thai year mod 100 (YY+43 mod 100)
-  Attempt 4: replace 2-digit year → Thai year−1 mod 100
-  All 4 fail → ReceivingStatus=NO_MATCH_FOUND, Matched=false, STOP.
+  Attempt 1: query WHERE PO_NO = [PO exactly as given]
+  Attempt 2: replace 2-digit year in PO → YY−1; query WHERE PO_NO = [modified PO]
+  Attempt 3: replace 2-digit year → Thai year mod 100 (YY+43 mod 100); query WHERE PO_NO = [modified PO]
+  Attempt 4: replace 2-digit year → Thai year−1 mod 100; query WHERE PO_NO = [modified PO]
+  Attempt 5: query WHERE PO_NO EndsWith [PO value]
+             → if exactly 1 result: use it; note "[EndsWith:[PO]]" in Assessment; ConfidenceLevel ≤ MEDIUM
+             → if 0 results or ≥ 2 results: treat as no match, do NOT pick arbitrarily
+  All 5 fail → ReceivingStatus=NO_MATCH_FOUND, Matched=false, STOP.
 
 After finding PO:
   READ every line: ITEM_DESCRIPTION, DESCRIPTION, UOM, QUANTITY, LINE_AMOUNT, NEED_BY_DATE.
@@ -163,11 +166,11 @@ Template: "P:[price] Q:[qty] H:[history] → [STATUS]"
   H  : "สะสม X/Y N รอบ"
 Append ONLY when notable (keep short):
   "[Mode A: เม.ย.69→Line3]"  "[Disc:500]"  "[Conv:12×0.5=6]"
-  "[FallbackPO:YY-1]"  "[multiPO:selected XXXXXXXX]"  "[⚠ note]"
+  "[FallbackPO:YY-1]"  "[EndsWith:[PO]]"  "[multiPO:selected XXXXXXXX]"  "[⚠ note]"
 
 ConfidenceLevel:
   HIGH   : exact match · no conversion · Q2 executed · no fallback · no discount ambiguity
-  MEDIUM : any of: fallback PO / UOM conversion / history≥1 / discount / period fallback
+  MEDIUM : any of: fallback PO / EndsWith match / UOM conversion / history≥1 / discount / period fallback
   LOW    : no period match + no Qty/Price match; or major discrepancy; or multiple mismatches
 
 ═══════════════════════════════════════════════
