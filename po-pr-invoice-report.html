@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PO · PR · Invoice Dashboard</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root {
+  --blue:   #2563eb; --blue-l: #eff6ff; --blue-d: #1d4ed8;
+  --green:  #16a34a; --green-l: #f0fdf4;
+  --red:    #dc2626; --red-l:   #fef2f2;
+  --amber:  #d97706; --amber-l: #fffbeb;
+  --purple: #7c3aed; --purple-l: #f5f3ff;
+  --g50:#f9fafb; --g100:#f3f4f6; --g200:#e5e7eb;
+  --g300:#d1d5db; --g400:#9ca3af; --g500:#6b7280;
+  --g700:#374151; --g900:#111827;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;color:var(--g900);background:var(--g50);overflow-x:hidden}
+
+/* ── HEADER ── */
+.hdr{background:linear-gradient(135deg,#1e40af,#2563eb);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.hdr h1{font-size:17px;font-weight:700;letter-spacing:-.3px}
+.hdr p{font-size:11px;opacity:.75;margin-top:2px}
+.hdr-right{margin-left:auto;display:flex;gap:8px}
+
+/* ── TABS ── */
+.tabs{display:flex;background:#fff;border-bottom:2px solid var(--g200);padding:0 20px;gap:2px;position:sticky;top:0;z-index:50}
+.tab-btn{padding:10px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--g500);border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tab-btn:hover{color:var(--blue)}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+.tab-count{background:var(--g100);color:var(--g500);font-size:10px;padding:1px 7px;border-radius:99px;transition:all .2s}
+.tab-btn.active .tab-count{background:var(--blue-l);color:var(--blue)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+/* ── TOOLBAR ── */
+.toolbar{background:#fff;padding:9px 18px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--g200);flex-wrap:wrap}
+.search-wrap{position:relative;flex:1;min-width:180px;max-width:460px}
+.search-wrap svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--g400);pointer-events:none}
+.search-input{width:100%;padding:7px 10px 7px 32px;border:1.5px solid var(--g200);border-radius:7px;font-size:13px;outline:none;transition:border .15s;background:var(--g50)}
+.search-input:focus{border-color:var(--blue);background:#fff}
+.hint{font-size:11px;color:var(--g400)}
+
+/* ── BUTTONS ── */
+.btn{padding:6px 13px;border:1.5px solid var(--g200);border-radius:7px;background:#fff;cursor:pointer;font-size:12px;font-weight:500;color:var(--g700);display:inline-flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap}
+.btn:hover{background:var(--g50);border-color:var(--g300)}
+.btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn-primary:hover{background:var(--blue-d)}
+.btn-green{background:var(--green);color:#fff;border-color:var(--green)}
+.btn-green:hover{background:#15803d}
+.btn-sm{padding:4px 10px;font-size:11px}
+
+/* ── TABLE ── */
+.tbl-wrap{overflow:auto;max-height:calc(100vh - 160px)}
+.drawer-open .tbl-wrap{max-height:calc(100vh - 160px - 340px)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{position:sticky;top:0;z-index:10;background:var(--g100);padding:7px 10px;text-align:left;font-weight:600;white-space:nowrap;border-bottom:2px solid var(--g200);cursor:pointer;user-select:none}
+thead th:hover{background:var(--g200)}
+.sort-icon{opacity:.4;font-size:10px;margin-left:3px}
+th.asc .sort-icon::after{content:'↑';opacity:1}
+th.desc .sort-icon::after{content:'↓';opacity:1}
+th:not(.asc):not(.desc) .sort-icon::after{content:'↕'}
+tbody tr{border-bottom:1px solid var(--g100);cursor:pointer;transition:background .1s}
+tbody tr:hover{background:#f0f7ff}
+tbody tr.selected{background:var(--blue-l);outline:2px solid var(--blue);outline-offset:-1px}
+tbody td{padding:5px 10px;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.cell-link{color:var(--blue);font-weight:600;text-decoration:underline dotted;cursor:pointer}
+mark{background:#fef08a;padding:0 1px;border-radius:2px}
+.empty,.loading{padding:40px;text-align:center;color:var(--g400);display:flex;align-items:center;justify-content:center;gap:10px}
+
+/* ── PAGINATION ── */
+.pagination{display:flex;align-items:center;gap:5px;padding:7px 18px;background:#fff;border-top:1px solid var(--g200);font-size:12px;flex-wrap:wrap}
+.pag-info{flex:1;color:var(--g500)}
+.page-btn{padding:3px 9px;border:1.5px solid var(--g200);border-radius:5px;background:#fff;cursor:pointer;font-size:12px;transition:all .1s}
+.page-btn:hover:not(:disabled){background:var(--g100)}
+.page-btn:disabled{opacity:.35;cursor:default}
+.page-btn.cur{background:var(--blue);color:#fff;border-color:var(--blue)}
+.pgsz{padding:3px 7px;border:1.5px solid var(--g200);border-radius:5px;font-size:12px}
+
+/* ── DRAWER ── */
+#drawer{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:3px solid var(--blue);box-shadow:0 -8px 32px rgba(0,0,0,.15);transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);z-index:100;display:flex;flex-direction:column;max-height:340px}
+#drawer.open{transform:translateY(0)}
+.drawer-hdr{display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--g200);background:linear-gradient(90deg,var(--purple-l),#fff)}
+.drawer-hdr h3{font-size:13px;font-weight:700;color:var(--purple)}
+.drawer-body{display:flex;gap:0;overflow:hidden;flex:1}
+.drawer-section{flex:1;overflow:auto;border-right:1px solid var(--g200);min-width:0}
+.drawer-section:last-child{border-right:none}
+.drawer-sec-hdr{padding:6px 10px;background:var(--g50);font-size:11px;font-weight:700;color:var(--g700);border-bottom:1px solid var(--g200);position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:6px}
+.drawer-sec-hdr .cnt{background:var(--g200);border-radius:99px;padding:0 6px;font-size:10px}
+.mini-tbl{width:100%;border-collapse:collapse;font-size:11px}
+.mini-tbl th{background:var(--g100);padding:4px 8px;text-align:left;font-weight:600;white-space:nowrap;position:sticky;top:26px;z-index:4;border-bottom:1px solid var(--g200)}
+.mini-tbl td{padding:4px 8px;white-space:nowrap;border-bottom:1px solid var(--g100);max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.mini-tbl tr:hover td{background:var(--g50)}
+.drawer-empty{padding:16px;text-align:center;color:var(--g400);font-size:11px}
+.filter-btn{font-size:10px;padding:2px 8px;border:1px solid var(--blue);color:var(--blue);border-radius:4px;cursor:pointer;background:#fff;transition:all .15s}
+.filter-btn:hover{background:var(--blue-l)}
+
+/* ── SPINNER ── */
+.spin{width:18px;height:18px;border:2px solid var(--g200);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── TOAST ── */
+#toast{position:fixed;bottom:24px;right:24px;min-width:220px;max-width:400px;background:var(--g900);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;opacity:0;transform:translateY(8px);transition:all .3s;pointer-events:none;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+#toast.show{opacity:1;transform:translateY(0)}
+#toast.ok{background:var(--green)}
+#toast.err{background:var(--red)}
+
+/* ── RECEIVE PR TAB ── */
+.recv-wrap{max-width:760px;margin:28px auto;padding:0 20px}
+.recv-date-bar{background:#fff;border:1.5px solid var(--g200);border-radius:14px;padding:18px 24px;margin-bottom:20px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.recv-date-lbl{font-size:12px;color:var(--g500);font-weight:500}
+.date-display{font-size:22px;font-weight:700;color:var(--blue);flex:1;text-align:center}
+.recv-date-bar input[type=date]{border:1.5px solid var(--g200);border-radius:8px;padding:7px 12px;font-size:14px;outline:none;transition:border .15s;cursor:pointer}
+.recv-date-bar input[type=date]:focus{border-color:var(--blue)}
+
+.recv-input-card{background:#fff;border:1.5px solid var(--g200);border-radius:14px;padding:20px 24px;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.recv-input-card h3{font-size:13px;font-weight:700;color:var(--g700);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.recv-input-wrap{display:flex;gap:10px}
+.recv-pr-input{flex:1;padding:12px 16px;border:2px solid var(--g200);border-radius:10px;font-size:15px;outline:none;transition:all .2s;font-family:inherit;letter-spacing:.5px}
+.recv-pr-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.recv-pr-input::placeholder{color:var(--g300);font-size:14px}
+
+.chips-area{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;min-height:36px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;font-size:12px;font-weight:600;background:var(--amber-l);border:1.5px solid var(--amber);color:#92400e;animation:popIn .2s cubic-bezier(.34,1.56,.64,1)}
+@keyframes popIn{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+.chip-del{cursor:pointer;opacity:.6;font-size:14px;line-height:1;transition:opacity .1s}
+.chip-del:hover{opacity:1}
+.chips-empty{color:var(--g300);font-size:12px;padding:6px 0;font-style:italic}
+
+.recv-actions{display:flex;align-items:center;gap:10px;margin-top:16px}
+.recv-save-btn{flex:1;padding:13px;border:none;border-radius:10px;background:var(--blue);color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.3px}
+.recv-save-btn:hover{background:var(--blue-d);transform:translateY(-1px);box-shadow:0 4px 12px rgba(37,99,235,.35)}
+.recv-save-btn:disabled{background:var(--g300);transform:none;box-shadow:none;cursor:default}
+
+.result-card{background:#fff;border:1.5px solid var(--g200);border-radius:14px;padding:20px 24px;box-shadow:0 2px 8px rgba(0,0,0,.06);animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.result-card h3{font-size:13px;font-weight:700;color:var(--g700);margin-bottom:12px}
+.result-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;margin-bottom:6px;font-size:13px;font-weight:500}
+.result-item.ok{background:var(--green-l);color:#14532d}
+.result-item.fail{background:var(--red-l);color:#7f1d1d}
+.result-icon{font-size:18px;flex:none}
+.result-pr{font-weight:700;font-family:monospace;font-size:14px}
+.result-desc{flex:1;font-size:12px;opacity:.8}
+
+/* Export All btn */
+.export-all-wrap{display:flex;justify-content:flex-end;padding:8px 18px;background:#fff;border-bottom:1px solid var(--g200)}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div>
+    <h1>📊 PO · PR · Invoice Dashboard</h1>
+    <p>เชื่อมข้อมูล PO Report · PR Report · รับ Invoice พร้อม Export &amp; Filter อัจฉริยะ</p>
+  </div>
+  <div class="hdr-right">
+    <button class="btn btn-green" onclick="exportAll()" title="Export ทุก table เป็น 3 sheets">⬇ Export All (3 Sheets)</button>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab-btn active" data-tab="po" onclick="switchTab('po')">📦 PO Report <span class="tab-count" id="cnt-po">…</span></button>
+  <button class="tab-btn" data-tab="pr" onclick="switchTab('pr')">📋 PR Report <span class="tab-count" id="cnt-pr">…</span></button>
+  <button class="tab-btn" data-tab="inv" onclick="switchTab('inv')">🧾 Invoice <span class="tab-count" id="cnt-inv">…</span></button>
+  <button class="tab-btn" data-tab="recv" onclick="switchTab('recv')">📥 รับ PR <span class="tab-count" id="cnt-recv" style="background:#fef9c3;color:#92400e"></span></button>
+</div>
+
+<!-- ── PO TAB ── -->
+<div id="tab-po" class="tab-content active">
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input class="search-input" id="srch-po" type="text" placeholder="ค้นหา PO_NO, Vendor, Dept, Item… (พิมหลายคำ = AND)" oninput="debounceSearch('po')">
+    </div>
+    <span class="hint" id="hint-po"></span>
+    <button class="btn btn-green btn-sm" onclick="exportTab('po')">⬇ Export Excel</button>
+  </div>
+  <div class="tbl-wrap" id="wrap-po"><div class="loading"><span class="spin"></span> กำลังโหลด...</div></div>
+  <div class="pagination" id="pag-po"></div>
+</div>
+
+<!-- ── PR TAB ── -->
+<div id="tab-pr" class="tab-content">
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input class="search-input" id="srch-pr" type="text" placeholder="ค้นหา PR Number, Description, PO Number…" oninput="debounceSearch('pr')">
+    </div>
+    <span class="hint" id="hint-pr"></span>
+    <button class="btn btn-green btn-sm" onclick="exportTab('pr')">⬇ Export Excel</button>
+  </div>
+  <div class="tbl-wrap" id="wrap-pr"><div class="loading"><span class="spin"></span> กำลังโหลด...</div></div>
+  <div class="pagination" id="pag-pr"></div>
+</div>
+
+<!-- ── INVOICE TAB ── -->
+<div id="tab-inv" class="tab-content">
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input class="search-input" id="srch-inv" type="text" placeholder="ค้นหา Invoice, Vendor, PO, Description…" oninput="debounceSearch('inv')">
+    </div>
+    <span class="hint" id="hint-inv"></span>
+    <button class="btn btn-green btn-sm" onclick="exportTab('inv')">⬇ Export Excel</button>
+  </div>
+  <div class="tbl-wrap" id="wrap-inv"><div class="loading"><span class="spin"></span> กำลังโหลด...</div></div>
+  <div class="pagination" id="pag-inv"></div>
+</div>
+
+<!-- ── RECEIVE PR TAB ── -->
+<div id="tab-recv" class="tab-content">
+  <div class="recv-wrap">
+
+    <!-- Date bar -->
+    <div class="recv-date-bar">
+      <div>
+        <div class="recv-date-lbl">📅 วันที่รับ PR</div>
+        <div class="date-display" id="recv-date-display">—</div>
+      </div>
+      <input type="date" id="recv-date-input" oninput="onDateChange()">
+      <button class="btn btn-sm" onclick="setDateToday()">วันนี้</button>
+    </div>
+
+    <!-- PR input card -->
+    <div class="recv-input-card">
+      <h3>🔢 พิม PR Number แล้วกด Enter</h3>
+      <div class="recv-input-wrap">
+        <input class="recv-pr-input" id="recv-pr-input" type="text"
+          placeholder="เช่น 1234567  หรือ PR-2025-001"
+          onkeydown="onPRInputKey(event)">
+        <button class="btn btn-primary" onclick="addFromInput()">+ เพิ่ม</button>
+      </div>
+      <div class="chips-area" id="chips-area">
+        <span class="chips-empty" id="chips-empty">ยังไม่มีรายการ — พิม PR Number แล้วกด Enter</span>
+      </div>
+      <div class="recv-actions">
+        <button class="btn btn-sm" onclick="clearStaging()">🗑 ล้างทั้งหมด</button>
+        <button class="recv-save-btn" id="recv-save-btn" onclick="savePRDates()" disabled>💾 บันทึก</button>
+      </div>
+    </div>
+
+    <!-- Result card (hidden until saved) -->
+    <div class="result-card" id="result-card" style="display:none">
+      <h3 id="result-title">ผลการบันทึก</h3>
+      <div id="result-list"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── DRAWER ── -->
+<div id="drawer">
+  <div class="drawer-hdr">
+    <span>🔗</span>
+    <h3 id="drawer-title">ข้อมูลที่เกี่ยวข้อง</h3>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn btn-sm" id="drawer-filter-po" onclick="filterTabFromDrawer('po')" style="display:none">📦 Filter PO</button>
+      <button class="btn btn-sm" id="drawer-filter-pr" onclick="filterTabFromDrawer('pr')" style="display:none">📋 Filter PR</button>
+      <button class="btn btn-sm" id="drawer-filter-inv" onclick="filterTabFromDrawer('inv')" style="display:none">🧾 Filter Invoice</button>
+      <button class="btn btn-sm" onclick="closeDrawer()">✕ ปิด</button>
+    </div>
+  </div>
+  <div class="drawer-body" id="drawer-body">
+    <div class="loading"><span class="spin"></span> กำลังโหลด...</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+//  CONFIG
+// ─────────────────────────────────────────────────────────
+const SB_URL = 'https://glbndfloqirjjoqfjdlw.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdsYm5kZmxvcWlyampvcWZqZGx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NDU4MTQsImV4cCI6MjA4NjMyMTgxNH0.4BKRODjGgzqrGxYQ3hkoiuZ-Hg-2mg32YBuA3oHliWI';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+const CFG = {
+  po: {
+    tbl: 'PO Report',
+    cols: ['PO_NO','PO_DATE','PR_NO','DEPT_NO','DEPT_NAME','VENDOR_NAME','ITEM_CODE','ITEM_DESCRIPTION','กลุ่มสินค้า','หมวดสินค้า','QUANTITY','UOM','UNIT_PRICE','CURRENCY_CODE','LINE_AMOUNT','NEED_BY_DATE','CREDIT_TERM','AUTHORIZATION_STATUS','PO_STATUS','BUYER','LINE_NUM','PROMISED_DATE','PR_NON_AUTO','DESCRIPTION','NAMEAPPROVED','DATEAPPROVED','REVISION_NUM','ORG_NAME'],
+    srchCols: ['PO_NO','PR_NO','DEPT_NO','DEPT_NAME','VENDOR_NAME','ITEM_CODE','ITEM_DESCRIPTION','กลุ่มสินค้า','หมวดสินค้า','QUANTITY','UOM','UNIT_PRICE','CURRENCY_CODE','LINE_AMOUNT','AUTHORIZATION_STATUS','PO_STATUS','BUYER','LINE_NUM','NAMEAPPROVED'],
+    linkCols: ['PO_NO','PR_NO'],
+    drawerCols: ['PO_NO','PO_DATE','VENDOR_NAME','LINE_AMOUNT','AUTHORIZATION_STATUS','PO_STATUS']
+  },
+  pr: {
+    tbl: 'PR Report',
+    cols: ['PR Number','PR  Line','Operating Unit','Creation Date','Description','PR Status','PR Authorization','Action Date','Item','Item Description','Quantity','UOM','THB Price','THB Amount','Currency','Rate Type','Rate Date','Rate','Currency Price','Need-By-Date','Preparer','ชื่อผู้ขอซื้อ','Cancelled','Charge Account','BU','Sub BU','Department','Account','Sub Account','Product','Project','Future','PO Number','Status PO','Authorization PO','PO Line','Creation Date PO','Need-By-Date PO','Receive PR Date'],
+    srchCols: ['PR Number','PR  Line','Description','PR Status','PR Authorization','Item','Item Description','Quantity','UOM','THB Price','THB Amount','Currency','Need-By-Date','Preparer','ชื่อผู้ขอซื้อ','BU','Sub BU','Department','PO Number','Status PO','Authorization PO'],
+    linkCols: ['PR Number','PO Number'],
+    drawerCols: ['PR Number','PR  Line','Description','PR Status','THB Amount','PO Number','Receive PR Date']
+  },
+  inv: {
+    tbl: 'Report_ReceiveInvoicePOIndirect',
+    cols: ['TimeStamp','Vendor','PO','Invoice','Invoice Date','Description','Qty','Price','Vat','Total Amount','Status First verify','Remark','InvoicePO Ref','Stamp_Received','Stamp_ยอดสะสม','Stamp_ยอดคงค้าง','Stamp_Signature','Reason','ReceivingStatus','Assessment','ConfidenceLevel','DeliveryTimingStatus','Matched','Date Scan','Url','pathonedrivemainfile','Discount','LineNum','UnitPrice','LineAmount','POLineNum','PODescription','LineMatchStatus','DocumentType'],
+    srchCols: ['Vendor','PO','Invoice','Description','Qty','Price','Total Amount','Status First verify','Remark','InvoicePO Ref','ReceivingStatus','Assessment','ConfidenceLevel','DeliveryTimingStatus','Matched','POLineNum','PODescription','LineMatchStatus','DocumentType'],
+    linkCols: ['PO','Invoice'],
+    drawerCols: ['Invoice','Vendor','PO','Total Amount','Status First verify','ReceivingStatus','DeliveryTimingStatus']
+  }
+};
+
+// ─────────────────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────────────────
+const ST = {
+  po:  { page:0, pageSize:50, total:0, sort:null, sortDir:'asc', search:'', data:[], timer:null, link:null },
+  pr:  { page:0, pageSize:50, total:0, sort:null, sortDir:'asc', search:'', data:[], timer:null, link:null },
+  inv: { page:0, pageSize:50, total:0, sort:null, sortDir:'asc', search:'', data:[], timer:null, link:null }
+};
+let activeTab = 'po';
+let drawerMeta = null; // { source, row, poLink, prLink, invLink }
+const staging = [];   // PR staging list for Receive PR tab
+
+// ─────────────────────────────────────────────────────────
+//  FETCH
+// ─────────────────────────────────────────────────────────
+async function fetchRows(key, forExport = false) {
+  const cfg = CFG[key], st = ST[key];
+  let q = sb.from(cfg.tbl).select('*', { count: 'exact' });
+
+  if (st.link) {
+    q = q.eq(st.link.col, st.link.val);
+  } else if (st.search.trim()) {
+    const tokens = st.search.trim().split(/\s+/).filter(Boolean);
+    for (const tok of tokens) {
+      const safe = tok.replace(/%/g, '');
+      const or = cfg.srchCols.map(c => `"${c}".ilike.%${safe}%`).join(',');
+      q = q.or(or);
+    }
+  }
+
+  if (st.sort) q = q.order(st.sort, { ascending: st.sortDir === 'asc' });
+
+  if (!forExport) {
+    const from = st.page * st.pageSize;
+    q = q.range(from, from + st.pageSize - 1);
+  } else {
+    q = q.limit(50000);
+  }
+
+  const { data, count, error } = await q;
+  if (error) { console.error(key, error); return { data:[], count:0 }; }
+  return { data: data || [], count: count || 0 };
+}
+
+async function fetchLinked(tbl, col, val) {
+  const { data } = await sb.from(tbl).select('*').eq(col, val).limit(200);
+  return data || [];
+}
+
+async function fetchLinkedMulti(tbl, col, vals) {
+  if (!vals.length) return [];
+  const { data } = await sb.from(tbl).select('*').in(col, vals).limit(200);
+  return data || [];
+}
+
+// ─────────────────────────────────────────────────────────
+//  LOAD TAB
+// ─────────────────────────────────────────────────────────
+async function loadTab(key) {
+  const wrap = document.getElementById('wrap-' + key);
+  wrap.innerHTML = '<div class="loading"><span class="spin"></span> กำลังโหลด...</div>';
+  document.getElementById('hint-' + key).textContent = '';
+
+  const { data, count } = await fetchRows(key);
+  ST[key].data = data;
+  ST[key].total = count;
+  document.getElementById('cnt-' + key).textContent = count.toLocaleString();
+  renderTable(key, data);
+  renderPagination(key);
+}
+
+// ─────────────────────────────────────────────────────────
+//  RENDER TABLE
+// ─────────────────────────────────────────────────────────
+function renderTable(key, data) {
+  const cfg = CFG[key], st = ST[key];
+  const wrap = document.getElementById('wrap-' + key);
+  if (!data.length) { wrap.innerHTML = '<div class="empty">🔍 ไม่พบข้อมูลที่ตรงกัน</div>'; return; }
+
+  const tokens = (!st.link && st.search.trim()) ? st.search.trim().split(/\s+/).filter(Boolean) : [];
+
+  let h = '<table><thead><tr>';
+  for (const c of cfg.cols) {
+    const cls = st.sort === c ? (st.sortDir === 'asc' ? 'asc' : 'desc') : '';
+    h += `<th class="${cls}" onclick="sortBy('${key}','${esc(c)}')">${esc(c)}<span class="sort-icon"></span></th>`;
+  }
+  h += '</tr></thead><tbody>';
+
+  data.forEach((row, idx) => {
+    h += `<tr onclick="onRowClick('${key}',${idx})">`;
+    for (const c of cfg.cols) {
+      const val = row[c] != null ? String(row[c]) : '';
+      const isLink = cfg.linkCols.includes(c);
+      let disp = tokens.length ? highlight(esc(val), tokens) : esc(val);
+      h += `<td title="${esc(val)}">`;
+      if (isLink && val) h += `<span class="cell-link">${disp}</span>`;
+      else h += disp;
+      h += '</td>';
+    }
+    h += '</tr>';
+  });
+
+  h += '</tbody></table>';
+  wrap.innerHTML = h;
+}
+
+// ─────────────────────────────────────────────────────────
+//  RENDER PAGINATION
+// ─────────────────────────────────────────────────────────
+function renderPagination(key) {
+  const st = ST[key];
+  const el = document.getElementById('pag-' + key);
+  const total = st.total, ps = st.pageSize, pg = st.page;
+  const pages = Math.ceil(total / ps);
+  const from = pg * ps + 1, to = Math.min((pg + 1) * ps, total);
+
+  let h = `<span class="pag-info">แสดง ${from.toLocaleString()}–${to.toLocaleString()} จาก <b>${total.toLocaleString()}</b> รายการ</span>`;
+  if (st.link) h += `<span style="color:var(--purple);font-size:11px;margin-right:4px">🔗 กรองโดย: ${esc(st.link.col)} = "${esc(st.link.val)}"</span><button class="btn btn-sm" onclick="clearLink('${key}')">✕ ล้าง</button>`;
+
+  h += `<label style="font-size:11px;color:var(--g500)">แสดง <select class="pgsz" onchange="changePS('${key}',this.value)">`;
+  for (const n of [25,50,100,200]) h += `<option value="${n}" ${ps===n?'selected':''}>${n}</option>`;
+  h += `</select></label>`;
+
+  h += `<button class="page-btn" onclick="goPage('${key}',0)" ${pg===0?'disabled':''}>«</button>`;
+  h += `<button class="page-btn" onclick="goPage('${key}',${pg-1})" ${pg===0?'disabled':''}>‹</button>`;
+  const s = Math.max(0, pg-3), e = Math.min(pages-1, s+6);
+  for (let p = s; p <= e; p++) h += `<button class="page-btn ${p===pg?'cur':''}" onclick="goPage('${key}',${p})">${p+1}</button>`;
+  h += `<button class="page-btn" onclick="goPage('${key}',${pg+1})" ${pg>=pages-1?'disabled':''}>›</button>`;
+  h += `<button class="page-btn" onclick="goPage('${key}',${pages-1})" ${pg>=pages-1?'disabled':''}>»</button>`;
+
+  el.innerHTML = h;
+}
+
+// ─────────────────────────────────────────────────────────
+//  TAB SWITCH
+// ─────────────────────────────────────────────────────────
+function switchTab(key) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`[data-tab="${key}"]`).classList.add('active');
+  document.getElementById('tab-' + key).classList.add('active');
+  activeTab = key;
+  if (key !== 'recv' && !ST[key].data.length) loadTab(key);
+  if (key === 'recv') initRecvTab();
+}
+
+// ─────────────────────────────────────────────────────────
+//  SEARCH
+// ─────────────────────────────────────────────────────────
+function debounceSearch(key) {
+  const st = ST[key];
+  clearTimeout(st.timer);
+  st.search = document.getElementById('srch-' + key).value;
+  st.page = 0;
+  document.getElementById('hint-' + key).textContent = st.search ? '⏳ ค้นหา…' : '';
+  st.timer = setTimeout(() => loadTab(key), 350);
+}
+
+// ─────────────────────────────────────────────────────────
+//  SORT / PAGE / PAGE-SIZE
+// ─────────────────────────────────────────────────────────
+function sortBy(key, col) {
+  const st = ST[key];
+  st.sortDir = (st.sort === col && st.sortDir === 'asc') ? 'desc' : 'asc';
+  st.sort = col;
+  st.page = 0;
+  loadTab(key);
+}
+function goPage(key, page) {
+  ST[key].page = page;
+  loadTab(key);
+  document.getElementById('wrap-' + key).scrollTop = 0;
+}
+function changePS(key, size) {
+  ST[key].pageSize = parseInt(size);
+  ST[key].page = 0;
+  loadTab(key);
+}
+
+// ─────────────────────────────────────────────────────────
+//  LINK FILTER
+// ─────────────────────────────────────────────────────────
+function applyLink(key, col, val) {
+  ST[key].link = { col, val };
+  ST[key].page = 0;
+  ST[key].search = '';
+  const inp = document.getElementById('srch-' + key);
+  if (inp) inp.value = '';
+  if (activeTab === key) loadTab(key);
+  else { ST[key].data = []; document.getElementById('cnt-' + key).textContent = '⟳'; }
+}
+function clearLink(key) {
+  ST[key].link = null;
+  ST[key].page = 0;
+  loadTab(key);
+}
+
+// ─────────────────────────────────────────────────────────
+//  ROW CLICK → DRAWER
+// ─────────────────────────────────────────────────────────
+async function onRowClick(key, idx) {
+  const row = ST[key].data[idx];
+  if (!row) return;
+
+  // Highlight selected row
+  document.querySelectorAll(`#tab-${key} tbody tr`).forEach((r,i) => r.classList.toggle('selected', i===idx));
+
+  const drawer = document.getElementById('drawer');
+  const body = document.getElementById('drawer-body');
+  body.innerHTML = '<div class="loading"><span class="spin"></span> กำลังโหลดข้อมูลที่เกี่ยวข้อง…</div>';
+  drawer.classList.add('open');
+  document.querySelectorAll('.tbl-wrap').forEach(w => w.style.maxHeight = 'calc(100vh - 160px - 340px)');
+
+  // Determine linked values and fetch
+  let poRows = [], prRows = [], invRows = [];
+  let drawerTitle = '';
+  let links = {};
+
+  if (key === 'po') {
+    const poNo = row['PO_NO'], prNo = row['PR_NO'];
+    drawerTitle = `PO: ${poNo || '—'}`;
+    if (prNo) { prRows = await fetchLinked('PR Report', 'PR Number', prNo); links.pr = { col:'PR Number', val:prNo }; }
+    if (poNo) { invRows = await fetchLinked('Report_ReceiveInvoicePOIndirect', 'PO', poNo); links.inv = { col:'PO', val:poNo }; }
+    poRows = [row];
+
+  } else if (key === 'pr') {
+    const prNo = row['PR Number'], poNo = row['PO Number'];
+    drawerTitle = `PR: ${prNo || '—'} | Line: ${row['PR  Line'] || '—'}`;
+    prRows = [row];
+    if (poNo) {
+      poRows = await fetchLinked('PO Report', 'PO_NO', poNo);
+      invRows = await fetchLinked('Report_ReceiveInvoicePOIndirect', 'PO', poNo);
+      links.po = { col:'PO_NO', val:poNo };
+      links.inv = { col:'PO', val:poNo };
+    }
+
+  } else if (key === 'inv') {
+    const poNo = row['PO'];
+    drawerTitle = `Invoice: ${row['Invoice'] || '—'} | PO: ${poNo || '—'}`;
+    invRows = [row];
+    if (poNo) {
+      poRows = await fetchLinked('PO Report', 'PO_NO', poNo);
+      // PR via PO
+      const poNos = [...new Set(poRows.map(r => r['PR_NO']).filter(Boolean))];
+      if (poNos.length) prRows = await fetchLinkedMulti('PR Report', 'PR Number', poNos);
+      links.po = { col:'PO_NO', val:poNo };
+      if (poNos.length) links.pr = { col:'PR Number', val:poNos[0] };
+    }
+  }
+
+  drawerMeta = { key, row, links };
+  document.getElementById('drawer-title').textContent = `🔗 ${drawerTitle}`;
+
+  // Show/hide filter buttons
+  ['po','pr','inv'].forEach(k => {
+    document.getElementById('drawer-filter-' + k).style.display = links[k] ? '' : 'none';
+  });
+
+  renderDrawer(poRows, prRows, invRows);
+}
+
+function renderDrawer(poRows, prRows, invRows) {
+  const cfg = { po: CFG.po, pr: CFG.pr, inv: CFG.inv };
+  const body = document.getElementById('drawer-body');
+
+  body.innerHTML =
+    renderSection('📦 PO Report', poRows, CFG.po.drawerCols, 'po') +
+    renderSection('📋 PR Report', prRows, CFG.pr.drawerCols, 'pr') +
+    renderSection('🧾 Invoice', invRows, CFG.inv.drawerCols, 'inv');
+}
+
+function renderSection(title, rows, cols, key) {
+  let h = `<div class="drawer-section">
+    <div class="drawer-sec-hdr">${esc(title)} <span class="cnt">${rows.length}</span></div>`;
+
+  if (!rows.length) { h += '<div class="drawer-empty">ไม่พบข้อมูลที่เกี่ยวข้อง</div>'; }
+  else {
+    h += '<table class="mini-tbl"><thead><tr>';
+    cols.forEach(c => h += `<th>${esc(c)}</th>`);
+    h += '</tr></thead><tbody>';
+    rows.forEach(row => {
+      h += '<tr>';
+      cols.forEach(c => {
+        const v = row[c] != null ? String(row[c]) : '';
+        h += `<td title="${esc(v)}">${esc(v)}</td>`;
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.querySelectorAll('.tbl-wrap').forEach(w => w.style.maxHeight = '');
+  document.querySelectorAll('tbody tr.selected').forEach(r => r.classList.remove('selected'));
+  drawerMeta = null;
+}
+
+function filterTabFromDrawer(key) {
+  if (!drawerMeta || !drawerMeta.links[key]) return;
+  const { col, val } = drawerMeta.links[key];
+  applyLink(key, col, val);
+  switchTab(key);
+  showToast(`🔗 Filter ${key.toUpperCase()}: ${col} = "${val}"`, '');
+}
+
+// ─────────────────────────────────────────────────────────
+//  EXPORT
+// ─────────────────────────────────────────────────────────
+async function fetchAllForExport(key) {
+  const cfg = CFG[key], st = ST[key];
+  const ps = 1000;
+  let all = [], page = 0;
+  while (true) {
+    let q = sb.from(cfg.tbl).select('*');
+    if (st.link) {
+      q = q.eq(st.link.col, st.link.val);
+    } else if (st.search.trim()) {
+      const tokens = st.search.trim().split(/\s+/).filter(Boolean);
+      for (const tok of tokens) {
+        const safe = tok.replace(/%/g, '');
+        const or = cfg.srchCols.map(c => `"${c}".ilike.%${safe}%`).join(',');
+        q = q.or(or);
+      }
+    }
+    if (st.sort) q = q.order(st.sort, { ascending: st.sortDir === 'asc' });
+    q = q.range(page * ps, (page + 1) * ps - 1);
+    const { data, error } = await q;
+    if (error || !data || !data.length) break;
+    all = all.concat(data);
+    if (data.length < ps) break;
+    page++;
+  }
+  return all;
+}
+
+function buildSheet(data, cols) {
+  const rows = [cols, ...data.map(r => cols.map(c => r[c] ?? ''))];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = cols.map(c => ({ wch: Math.min(Math.max(c.length, 8) + 2, 40) }));
+  return ws;
+}
+
+async function exportTab(key) {
+  showToast('📦 กำลัง Export…');
+  const data = await fetchAllForExport(key);
+  if (!data.length) { showToast('ไม่มีข้อมูล', 'err'); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildSheet(data, CFG[key].cols), CFG[key].tbl.substring(0,31));
+  const dt = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `${CFG[key].tbl}_${dt}.xlsx`);
+  showToast(`✅ Export สำเร็จ ${data.length.toLocaleString()} รายการ`, 'ok');
+}
+
+async function exportAll() {
+  showToast('📦 กำลัง Export ทุก Table…');
+  const wb = XLSX.utils.book_new();
+  for (const key of ['po','pr','inv']) {
+    const data = await fetchAllForExport(key);
+    XLSX.utils.book_append_sheet(wb, buildSheet(data, CFG[key].cols), key === 'po' ? 'PO Report' : key === 'pr' ? 'PR Report' : 'Invoice');
+  }
+  const dt = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Report_All_${dt}.xlsx`);
+  showToast('✅ Export All สำเร็จ (3 sheets)', 'ok');
+}
+
+// ─────────────────────────────────────────────────────────
+//  RECEIVE PR TAB
+// ─────────────────────────────────────────────────────────
+function initRecvTab() {
+  const inp = document.getElementById('recv-date-input');
+  if (!inp.value) {
+    const today = new Date().toISOString().slice(0,10);
+    inp.value = today;
+  }
+  onDateChange();
+}
+
+function onDateChange() {
+  const val = document.getElementById('recv-date-input').value;
+  if (!val) { document.getElementById('recv-date-display').textContent = '—'; return; }
+  const d = new Date(val + 'T00:00:00');
+  document.getElementById('recv-date-display').textContent = d.toLocaleDateString('th-TH', {
+    year:'numeric', month:'long', day:'numeric', weekday:'long'
+  });
+}
+
+function setDateToday() {
+  document.getElementById('recv-date-input').value = new Date().toISOString().slice(0,10);
+  onDateChange();
+}
+
+function addFromInput() {
+  const inp = document.getElementById('recv-pr-input');
+  const val = inp.value.trim();
+  if (!val) return;
+  val.split(/[\s,;]+/).filter(Boolean).forEach(v => addPR(v));
+  inp.value = '';
+  inp.focus();
+}
+
+function onPRInputKey(e) {
+  if (e.key === 'Enter') { e.preventDefault(); addFromInput(); }
+}
+
+function addPR(prNo) {
+  if (!prNo || staging.includes(prNo)) return;
+  staging.push(prNo);
+  renderChips();
+}
+
+function removePR(prNo) {
+  const idx = staging.indexOf(prNo);
+  if (idx >= 0) staging.splice(idx, 1);
+  renderChips();
+}
+
+function clearStaging() {
+  staging.length = 0;
+  renderChips();
+  document.getElementById('result-card').style.display = 'none';
+}
+
+function renderChips() {
+  const area = document.getElementById('chips-area');
+  const empty = document.getElementById('chips-empty');
+  const btn = document.getElementById('recv-save-btn');
+  document.getElementById('cnt-recv').textContent = staging.length || '';
+  btn.disabled = !staging.length;
+  btn.textContent = staging.length ? `💾 บันทึก ${staging.length} รายการ` : '💾 บันทึก';
+
+  if (!staging.length) {
+    area.innerHTML = '';
+    area.appendChild(empty || (() => { const s = document.createElement('span'); s.className = 'chips-empty'; s.id = 'chips-empty'; s.textContent = 'ยังไม่มีรายการ — พิม PR Number แล้วกด Enter'; return s; })());
+    return;
+  }
+
+  area.innerHTML = staging.map(pr =>
+    `<div class="chip">${esc(pr)}<span class="chip-del" onclick="removePR('${esc(pr)}')" title="ลบ">✕</span></div>`
+  ).join('');
+}
+
+async function savePRDates() {
+  const dateVal = document.getElementById('recv-date-input').value;
+  if (!dateVal) { showToast('กรุณาเลือกวันที่ก่อน', 'err'); return; }
+  if (!staging.length) return;
+
+  const btn = document.getElementById('recv-save-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ กำลังตรวจสอบ…';
+
+  // 1. Check which PRs exist (all lines of each PR)
+  const { data: found, error: selErr } = await sb
+    .from('PR Report')
+    .select('"PR Number"')
+    .in('PR Number', staging);
+
+  if (selErr) {
+    showToast('เกิดข้อผิดพลาดในการค้นหา: ' + selErr.message, 'err');
+    btn.disabled = false;
+    btn.textContent = `💾 บันทึก ${staging.length} รายการ`;
+    return;
+  }
+
+  const foundSet = new Set((found || []).map(r => r['PR Number']));
+  const results = [];
+
+  // 2. Update each found PR
+  for (const prNo of staging) {
+    if (!foundSet.has(prNo)) {
+      results.push({ pr: prNo, ok: false, msg: 'ไม่พบใน PR Report' });
+      continue;
+    }
+    btn.textContent = `⏳ กำลังบันทึก ${prNo}…`;
+    const { error: updErr } = await sb
+      .from('PR Report')
+      .update({ 'Receive PR Date': dateVal })
+      .eq('PR Number', prNo);
+
+    if (updErr) {
+      results.push({ pr: prNo, ok: false, msg: 'บันทึกไม่สำเร็จ: ' + updErr.message });
+    } else {
+      results.push({ pr: prNo, ok: true, msg: `บันทึกวันที่ ${new Date(dateVal+'T00:00:00').toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'})}` });
+    }
+  }
+
+  // 3. Show results
+  const okCount = results.filter(r => r.ok).length;
+  const card = document.getElementById('result-card');
+  document.getElementById('result-title').textContent = `ผลการบันทึก: ✅ ${okCount} รายการ สำเร็จ, ❌ ${results.length - okCount} รายการ ไม่พบ`;
+  document.getElementById('result-list').innerHTML = results.map(r =>
+    `<div class="result-item ${r.ok ? 'ok' : 'fail'}">
+      <span class="result-icon">${r.ok ? '✅' : '❌'}</span>
+      <span class="result-pr">${esc(r.pr)}</span>
+      <span class="result-desc">${esc(r.msg)}</span>
+    </div>`
+  ).join('');
+  card.style.display = '';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  if (okCount > 0) {
+    showToast(`✅ บันทึกสำเร็จ ${okCount} PR`, 'ok');
+    // Invalidate PR tab cache so it reloads next visit
+    ST.pr.data = [];
+  }
+
+  staging.length = 0;
+  renderChips();
+  btn.disabled = false;
+  btn.textContent = '💾 บันทึก';
+}
+
+// ─────────────────────────────────────────────────────────
+//  UTILS
+// ─────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function highlight(html, tokens) {
+  for (const tok of tokens) {
+    const rx = new RegExp(`(${tok.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi');
+    html = html.replace(rx, '<mark>$1</mark>');
+  }
+  return html;
+}
+
+let toastTmr;
+function showToast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(toastTmr);
+  toastTmr = setTimeout(() => el.className = '', 3500);
+}
+
+// ─────────────────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────────────────
+loadTab('po');
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+</script>
+</body>
+</html>
